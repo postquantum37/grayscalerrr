@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -131,6 +132,7 @@ class MainActivity : ComponentActivity() {
 private fun App(store: AppListStore) {
     val (apps, setApps) = remember { mutableStateOf(store.apps) }
     val (whitelist, setWhitelist) = remember { mutableStateOf(store.whitelist) }
+    val (delay, setDelay) = remember { mutableStateOf(store.delayMs.toFloat()) }
     GrayscalerTheme {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -167,6 +169,22 @@ private fun App(store: AppListStore) {
                             setWhitelist(it)
                             setApps(store.apps)
                         }
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Text(text = "Switch delay: %.1f s".format(delay / 1000f))
+                    Slider(
+                        value = delay,
+                        onValueChange = {
+                            setDelay(it)
+                            store.delayMs = it.toLong()
+                        },
+                        valueRange = 0f..3000f,
+                        steps = 29
                     )
                 }
                 LazyColumn(

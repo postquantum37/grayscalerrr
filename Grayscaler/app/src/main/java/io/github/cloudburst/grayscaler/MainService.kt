@@ -21,12 +21,14 @@ class MainService : AccessibilityService() {
             store.load()
             val gray = store.shouldGrayScale(event.packageName.toString())
             pending?.let { handler.removeCallbacks(it) }
+            pending = null
             if (gray == currentState) return
-            pending = Runnable {
+            val task = Runnable {
                 if (gray) enableMonochrome() else disableMonochrome()
                 currentState = gray
             }
-            handler.postDelayed(pending!!, SWITCH_DELAY_MS)
+            pending = task
+            if (store.delayMs <= 0L) task.run() else handler.postDelayed(task, store.delayMs)
         }
     }
 
@@ -50,7 +52,6 @@ class MainService : AccessibilityService() {
         const val MONOCHROME = 0
         const val OFF = 0
         const val ON = 1
-        const val SWITCH_DELAY_MS = 1000L
         val IGNORED_PACKAGES = listOf(
             "com.android.systemui",
             "com.android.launcher3",

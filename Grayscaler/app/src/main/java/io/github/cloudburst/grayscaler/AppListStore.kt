@@ -18,7 +18,9 @@ class AppListStore(
 ) {
 
     val path = context.filesDir.resolve("apps.txt")
+    val delayPath = context.filesDir.resolve("delay.txt")
     var whitelist: Boolean = true
+    var delayMs: Long = DEFAULT_DELAY_MS
     var toggledApps: Set<String> = emptySet()
 
     var apps: List<Pair<AppEntry, Boolean>> = emptyList()
@@ -40,6 +42,7 @@ class AppListStore(
         private set
 
     fun save() {
+        delayPath.writeText(delayMs.toString())
         val stream = path.outputStream().writer()
         stream.write(if (whitelist) "w\n" else "b\n")
         toggledApps.forEach { stream.write("$it\n") }
@@ -47,6 +50,11 @@ class AppListStore(
     }
 
     fun load() {
+        delayMs = try {
+            delayPath.readText().trim().toLong().coerceIn(0L, 5000L)
+        } catch (e: Exception) {
+            DEFAULT_DELAY_MS
+        }
         if (!path.exists()) return
         val stream = path.inputStream().bufferedReader()
         whitelist = stream.readLine() != "b"
@@ -68,6 +76,10 @@ class AppListStore(
 
     fun invalidate() {
         apps = emptyList()
+    }
+
+    companion object {
+        const val DEFAULT_DELAY_MS = 500L
     }
 
     private fun listPackages() : Set<String> {
