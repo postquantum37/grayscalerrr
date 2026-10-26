@@ -4,13 +4,15 @@ import android.app.usage.UsageStats
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Context.USAGE_STATS_SERVICE
-import android.graphics.drawable.Drawable
-import kotlin.collections.mapNotNull
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.graphics.drawable.toBitmap
+import java.io.File
 
 data class AppEntry(
     val packageName: String,
     val appName: String,
-    val icon: Drawable
+    val icon: ImageBitmap
 )
 
 class AppListStore(
@@ -23,30 +25,15 @@ class AppListStore(
     var delayMs: Long = DEFAULT_DELAY_MS
     var toggledApps: Set<String> = emptySet()
 
-    var apps: List<Pair<AppEntry, Boolean>> = emptyList()
-        get() {
-            if (field.isEmpty()) {
-                field = (toggledApps + listPackages()).mapNotNull { packageName ->
-                    try {
-                        val appInfo = context.packageManager.getApplicationInfo(packageName, 0)
-                        val appName = context.packageManager.getApplicationLabel(appInfo).toString()
-                        val icon = context.packageManager.getApplicationIcon(appInfo)
-                        AppEntry(packageName, appName, icon) to toggledApps.contains(packageName)
-                    } catch (e: Exception) {
-                        null
-                    }
-                }
-            }
-            return field
-        }
-        private set
+    // Отпечаток файлов настроек: служба перечитывает их только если файлы изменились.
+    private var loadedStamp: Long = -1L
 
     fun save() {
-        delayPath.writeText(delayMs.toString())
-        val stream = path.outputStream().writer()
-        stream.write(if (whitelist) "w\n" else "b\n")
-        toggledApps.forEach { stream.write("$it\n") }
-        stream.close()
+        val sb = StringBuilder()
+        sb.append(if (whitelist) "w\n" else "b\n")
+        toggledApps.forEach { sb.append(it).append('\n') }
+        writeAtomic(path, sb.toString())
+        writeAtomic(delayPath, delayMs.toString())
     }
 
     fun load() {
@@ -62,39 +49,65 @@ class AppListStore(
         stream.close()
     }
 
+    /** Дёшево (две проверки времени изменения файлов): читает с диска только при изменениях. */
+    fun reloadIfChanged() {
+        val stamp = path.lastModified() * 31 + delayPath.lastModified()
+        if (stamp == loadedStamp) return
+        load()
+        loadedStamp = stamp
+    }
+
     fun shouldGrayScale(packageName: String): Boolean {
         return if (whitelist) !toggledApps.contains(packageName) else toggledApps.contains(packageName)
     }
 
-    fun toggleApp(packageName: String) {
-        if (toggledApps.contains(packageName)) {
-            toggledApps -= packageName
-        } else {
-            toggledApps += packageName
+    /** Тяжёлая операция: вызывать в фоновом потоке. Иконки готовятся один раз. */
+    fun loadApps(): List<AppEntry> {
+        val pm = context.packageManager
+        return (toggledApps + listPackages()).mapNotNull { packageName ->
+            try {
+                val appInfo = pm.getApplicationInfo(packageName, 0)
+                val appName = pm.getApplicationLabel(appInfo).toString()
+                val icon = pm.getApplicationIcon(appInfo).toBitmap(96, 96).asImageBitmap()
+                AppEntry(packageName, appName, icon)
+            } catch (e: Exception) {
+                null
+            }
+        }.sortedBy { it.appName.lowercase() }
+    }
+
+    private fun writeAtomic(target: File, text: String) {
+        val tmp = File(target.parentFile, target.name + ".tmp")
+        try {
+            tmp.writeText(text)
+            if (!tmp.renameTo(target)) {
+                target.writeText(text)
+                tmp.delete()
+            }
+        } catch (e: Exception) {
+            target.writeText(text)
         }
     }
 
-    fun invalidate() {
-        apps = emptyList()
+    private fun listPackages(): Set<String> {
+        return try {
+            val usageStatsManager = context.getSystemService(USAGE_STATS_SERVICE) as UsageStatsManager
+            usageStatsManager.queryUsageStats(
+                UsageStatsManager.INTERVAL_DAILY,
+                0,
+                System.currentTimeMillis()
+            )
+                .filter { it.packageName != context.packageName && it.totalTime > 0 }
+                .sortedBy { -it.lastTimeUsed }
+                .map { it.packageName }
+                .toSet()
+        } catch (e: Exception) {
+            emptySet()
+        }
     }
 
     companion object {
         const val DEFAULT_DELAY_MS = 500L
-    }
-
-    private fun listPackages() : Set<String> {
-        val usageStatsManager = context.getSystemService(USAGE_STATS_SERVICE) as UsageStatsManager
-        val result = usageStatsManager.queryUsageStats(
-            UsageStatsManager.INTERVAL_DAILY,
-            0,
-            System.currentTimeMillis()
-        )
-            .filter { it.packageName != context.packageName && it.totalTime > 0 }
-            .sortedBy { -it.lastTimeUsed }
-            .map { it.packageName }
-            .toSet()
-
-        return result
     }
 }
 

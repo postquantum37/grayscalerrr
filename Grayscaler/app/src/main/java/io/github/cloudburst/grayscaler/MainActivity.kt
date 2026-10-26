@@ -18,8 +18,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -27,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,7 +43,9 @@ import io.github.cloudburst.grayscaler.ShizukuRunner.CommandResultListener
 import io.github.cloudburst.grayscaler.ShizukuRunner.Companion.command
 import io.github.cloudburst.grayscaler.ShizukuRunner.Companion.shizukuEnabled
 import io.github.cloudburst.grayscaler.ui.theme.GrayscalerTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.withContext
 import java.util.concurrent.CyclicBarrier
 import kotlin.concurrent.thread
 
@@ -130,9 +136,31 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun App(store: AppListStore) {
-    val (apps, setApps) = remember { mutableStateOf(store.apps) }
     val (whitelist, setWhitelist) = remember { mutableStateOf(store.whitelist) }
     val (delay, setDelay) = remember { mutableStateOf(store.delayMs.toFloat()) }
+    val (selected, setSelected) = remember { mutableStateOf(store.toggledApps) }
+    val (query, setQuery) = remember { mutableStateOf("") }
+
+    // Список приложений грузится в фоне, иконки готовятся один раз.
+    val appsState = produceState<List<AppEntry>?>(initialValue = null) {
+        value = withContext(Dispatchers.Default) { store.loadApps() }
+    }
+    val apps = appsState.value
+
+    val filtered = remember(apps, query) {
+        val list = apps ?: emptyList()
+        if (query.isBlank()) list
+        else list.filter {
+            it.appName.contains(query, ignoreCase = true) ||
+                it.packageName.contains(query, ignoreCase = true)
+        }
+    }
+
+    fun update(newSelection: Set<String>) {
+        store.toggledApps = newSelection
+        setSelected(newSelection)
+    }
+
     GrayscalerTheme {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -155,19 +183,20 @@ private fun App(store: AppListStore) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(text = if (whitelist) "Whitelist" else "Blacklist")
+                    Text(
+                        text = if (whitelist) "Отмеченные остаются цветными, остальные чёрно-белые"
+                        else "Отмеченные становятся чёрно-белыми, остальные цветные",
+                        modifier = Modifier.weight(1f)
+                    )
                     Switch(
                         checked = whitelist,
                         onCheckedChange = {
                             store.whitelist = it
-                            store.toggledApps = emptySet()
-                            store.invalidate()
                             setWhitelist(it)
-                            setApps(store.apps)
                         }
                     )
                 }
@@ -176,7 +205,7 @@ private fun App(store: AppListStore) {
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
                 ) {
-                    Text(text = "Switch delay: %.1f s".format(delay / 1000f))
+                    Text(text = "Задержка переключения: %.1f с".format(delay / 1000f))
                     Slider(
                         value = delay,
                         onValueChange = {
@@ -187,46 +216,72 @@ private fun App(store: AppListStore) {
                         steps = 29
                     )
                 }
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = setQuery,
+                    label = { Text("Поиск приложения") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(onClick = {
+                        update(selected + filtered.map { it.packageName })
+                    }) { Text("Выбрать все") }
+                    OutlinedButton(onClick = {
+                        update(selected - filtered.map { it.packageName }.toSet())
+                    }) { Text("Снять все") }
+                    Text(text = "Выбрано: ${selected.size}")
+                }
+                if (apps == null) {
+                    Text(
+                        text = "Загрузка списка приложений…",
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(apps.size) { appId ->
-                        val (app, enabled) = apps[appId]
+                    items(filtered, key = { it.packageName }) { app ->
+                        val enabled = selected.contains(app.packageName)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically
+                            Image(
+                                bitmap = app.icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(40.dp)
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 16.dp)
                             ) {
-                                Image(
-                                    bitmap = app.icon.current.toBitmap().asImageBitmap(),
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                )
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(start = 16.dp)
-                                ) {
-                                    Text(text = app.appName)
-                                    Text(
-                                        text = app.packageName,
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
-                                Switch(
-                                    checked = enabled,
-                                    onCheckedChange = { isChecked ->
-                                        store.toggleApp(app.packageName)
-                                        store.invalidate()
-                                        setApps(store.apps)
-                                    }
+                                Text(text = app.appName)
+                                Text(
+                                    text = app.packageName,
+                                    style = MaterialTheme.typography.bodySmall
                                 )
                             }
+                            Switch(
+                                checked = enabled,
+                                onCheckedChange = {
+                                    update(
+                                        if (enabled) selected - app.packageName
+                                        else selected + app.packageName
+                                    )
+                                }
+                            )
                         }
                     }
                 }
