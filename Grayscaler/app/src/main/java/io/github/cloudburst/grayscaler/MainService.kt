@@ -23,9 +23,9 @@ class MainService : AccessibilityService() {
         store.reloadIfChanged()
         val gray = store.shouldGrayScale(pkg)
 
-        // Новое событие отменяет ещё не выполненное переключение (защита от дёрганья).
+        // A new event cancels any switch that has not run yet (prevents flicker).
         cancelPending()
-        // Если экран уже в нужном состоянии, ничего не делаем и ничего не пишем в систему.
+        // If the screen is already in the right state, do nothing and write nothing.
         if (gray == isGray()) return
 
         val task = Runnable {
@@ -43,7 +43,7 @@ class MainService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
-        // Служба выключена: не оставляем экран в чёрно-белом режиме.
+        // Service turned off: do not leave the screen stuck in grayscale.
         cancelPending()
         disableMonochrome()
         return super.onUnbind(intent)
@@ -73,7 +73,7 @@ class MainService : AccessibilityService() {
         false
     }
 
-    // В систему пишем только то, что реально отличается от текущего значения.
+    // Only write system settings whose value actually differs.
     private fun enableMonochrome() {
         try {
             if (Settings.Secure.getInt(contentResolver, DISPLAY_DALTONIZER, -1) != MONOCHROME)

@@ -141,7 +141,7 @@ private fun App(store: AppListStore) {
     val (selected, setSelected) = remember { mutableStateOf(store.toggledApps) }
     val (query, setQuery) = remember { mutableStateOf("") }
 
-    // Список приложений грузится в фоне, иконки готовятся один раз.
+    // The app list is loaded in the background; icons are prepared once.
     val appsState = produceState<List<AppEntry>?>(initialValue = null) {
         value = withContext(Dispatchers.Default) { store.loadApps() }
     }
@@ -188,8 +188,8 @@ private fun App(store: AppListStore) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = if (whitelist) "Отмеченные остаются цветными, остальные чёрно-белые"
-                        else "Отмеченные становятся чёрно-белыми, остальные цветные",
+                        text = if (whitelist) "Checked apps stay in color, all others are grayscale"
+                        else "Checked apps become grayscale, all others stay in color",
                         modifier = Modifier.weight(1f)
                     )
                     Switch(
@@ -205,7 +205,7 @@ private fun App(store: AppListStore) {
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
                 ) {
-                    Text(text = "Задержка переключения: %.1f с".format(delay / 1000f))
+                    Text(text = "Switch delay: %.1f s".format(delay / 1000f))
                     Slider(
                         value = delay,
                         onValueChange = {
@@ -219,7 +219,7 @@ private fun App(store: AppListStore) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = setQuery,
-                    label = { Text("Поиск приложения") },
+                    label = { Text("Search apps") },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -234,15 +234,15 @@ private fun App(store: AppListStore) {
                 ) {
                     OutlinedButton(onClick = {
                         update(selected + filtered.map { it.packageName })
-                    }) { Text("Выбрать все") }
+                    }) { Text("Select all") }
                     OutlinedButton(onClick = {
                         update(selected - filtered.map { it.packageName }.toSet())
-                    }) { Text("Снять все") }
-                    Text(text = "Выбрано: ${selected.size}")
+                    }) { Text("Clear all") }
+                    Text(text = "Selected: ${selected.size}")
                 }
                 if (apps == null) {
                     Text(
-                        text = "Загрузка списка приложений…",
+                        text = "Loading apps…",
                         modifier = Modifier.padding(16.dp)
                     )
                 }

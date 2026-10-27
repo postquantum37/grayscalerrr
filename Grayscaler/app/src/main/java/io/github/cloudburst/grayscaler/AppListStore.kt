@@ -25,7 +25,7 @@ class AppListStore(
     var delayMs: Long = DEFAULT_DELAY_MS
     var toggledApps: Set<String> = emptySet()
 
-    // Отпечаток файлов настроек: служба перечитывает их только если файлы изменились.
+    // Settings file stamp: the service re-reads them only when the files changed.
     private var loadedStamp: Long = -1L
 
     fun save() {
@@ -49,7 +49,7 @@ class AppListStore(
         stream.close()
     }
 
-    /** Дёшево (две проверки времени изменения файлов): читает с диска только при изменениях. */
+    /** Cheap (two file timestamp checks): reads from disk only when something changed. */
     fun reloadIfChanged() {
         val stamp = path.lastModified() * 31 + delayPath.lastModified()
         if (stamp == loadedStamp) return
@@ -61,7 +61,7 @@ class AppListStore(
         return if (whitelist) !toggledApps.contains(packageName) else toggledApps.contains(packageName)
     }
 
-    /** Тяжёлая операция: вызывать в фоновом потоке. Иконки готовятся один раз. */
+    /** Heavy operation: call from a background thread. Icons are prepared once. */
     fun loadApps(): List<AppEntry> {
         val pm = context.packageManager
         return (toggledApps + listPackages()).mapNotNull { packageName ->
